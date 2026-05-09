@@ -29,17 +29,18 @@ async def extract_text(
     input_path = document.processed_path if document.processed_path else document.original_path
     
     try:
-        text = ocr_engine.extract_text(input_path, lang=lang, engine=engine)
+        ocr_result = ocr_engine.extract_text(input_path, lang=lang, engine=engine)
         
-        # Save results to database
-        document.ocr_text = text
+        # Save full text to database
+        document.ocr_text = ocr_result["text"]
         document.status = "completed"
         db.commit()
         db.refresh(document)
         
         return {
             "document_id": document_id,
-            "text": text,
+            "text": ocr_result["text"],
+            "blocks": ocr_result["blocks"],
             "engine": engine,
             "lang": lang
         }
