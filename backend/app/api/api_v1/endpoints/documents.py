@@ -19,6 +19,38 @@ router = APIRouter()
 SUPPORTED_FORMATS = ["image/jpeg", "image/png", "image/webp", "application/pdf", "image/tiff"]
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
 
+@router.get("/", response_model=List[DocumentSchema])
+def list_documents(
+    db: Session = Depends(get_db),
+    current_user = Depends(deps.get_current_user),
+    skip: int = 0,
+    limit: int = 100,
+) -> Any:
+    """
+    Retrieve all documents for the current user.
+    """
+    documents = db.query(Document).filter(Document.user_id == current_user.id).order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
+    return documents
+
+@router.get("/search", response_model=List[DocumentSchema])
+def search_documents(
+    db: Session = Depends(get_db),
+    current_user = Depends(deps.get_current_user),
+    q: str = "",
+    skip: int = 0,
+    limit: int = 100,
+) -> Any:
+    """
+    Search documents by filename or OCR text.
+    """
+    query = db.query(Document).filter(Document.user_id == current_user.id)
+    if q:
+        query = query.filter(
+            (Document.filename.ilike(f"%{q}%")) | 
+            (Document.ocr_text.ilike(f"%{q}%"))
+        )
+    return query.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
+
 @router.post("/upload", response_model=DocumentSchema)
 async def upload_document(
     *,

@@ -30,7 +30,7 @@ def create_simple_pdf(image_path: str, output_path: str):
         image = Image.open(image_path)
         if image.mode == 'RGBA':
             image = image.convert('RGB')
-        image.save(output_path, "PDF", resolution=100.0)
+        image.save(output_path, "PDF", resolution=300.0)
         return output_path
     except Exception as e:
         raise Exception(f"Simple PDF generation failed: {e}")

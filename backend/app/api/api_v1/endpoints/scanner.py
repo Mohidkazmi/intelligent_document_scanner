@@ -81,7 +81,7 @@ async def correct_perspective(
         # Save processed image
         processed_filename = f"processed_{os.path.basename(document.original_path)}"
         processed_path = os.path.join(settings.PROCESSED_DIR, processed_filename)
-        cv2.imwrite(processed_path, warped)
+        cv2.imwrite(processed_path, warped, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
         
         # Update database
         document.processed_path = processed_path
@@ -137,7 +137,7 @@ async def enhance(
         # Save enhanced image
         enhanced_filename = f"enhanced_{mode}_{os.path.basename(input_path)}"
         enhanced_path = os.path.join(settings.PROCESSED_DIR, enhanced_filename)
-        cv2.imwrite(enhanced_path, enhanced)
+        cv2.imwrite(enhanced_path, enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
         
         # Update database
         document.processed_path = enhanced_path
