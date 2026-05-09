@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:doc_scanner/core/constants.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -19,7 +20,19 @@ class DocumentService {
     );
 
     request.headers['Authorization'] = 'Bearer $token';
-    request.files.add(await http.MultipartFile.fromPath('file', file.path));
+    
+    // Determine content type based on extension
+    final extension = file.path.split('.').last.toLowerCase();
+    String mimeType = 'image/jpeg';
+    if (extension == 'png') mimeType = 'image/png';
+    if (extension == 'webp') mimeType = 'image/webp';
+    if (extension == 'pdf') mimeType = 'application/pdf';
+
+    request.files.add(await http.MultipartFile.fromPath(
+      'file', 
+      file.path,
+      contentType: MediaType.parse(mimeType),
+    ));
 
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
