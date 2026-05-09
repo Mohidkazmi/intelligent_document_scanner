@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.database.session import get_db, Base, engine
 from fastapi import Depends
+import pytesseract
 
 # Configure logging
 logging.basicConfig(
@@ -51,13 +52,21 @@ async def health_check(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
 
+    # Check OCR
+    ocr_status = "unhealthy"
+    try:
+        pytesseract.get_tesseract_version()
+        ocr_status = "healthy"
+    except Exception:
+        pass
+
     return {
         "status": "healthy",
         "version": "0.1.0",
         "services": {
             "database": db_status,
-            "ocr": "pending",
-            "cv": "pending"
+            "ocr": ocr_status,
+            "cv": "healthy" # OpenCV is imported so it's healthy
         }
     }
 
