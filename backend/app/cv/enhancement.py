@@ -16,12 +16,14 @@ def enhance_image(image_path: str, mode: str):
         return cv2.convertScaleAbs(gray, alpha=1.1, beta=0)
     
     elif mode == "bw":
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        # Adaptive thresholding for clean scan look
-        # Use a larger block size (21) to remove noise and shadows
+        # For colored text (like red), standard grayscale can be too light.
+        # We'll take the minimum of all channels to ensure colored text stays dark.
+        gray = np.min(image, axis=2)
+        
+        # Adaptive thresholding with a larger block size and higher constant
         return cv2.adaptiveThreshold(
             gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-            cv2.THRESH_BINARY, 21, 10
+            cv2.THRESH_BINARY, 31, 15
         )
     
     elif mode == "magic":
