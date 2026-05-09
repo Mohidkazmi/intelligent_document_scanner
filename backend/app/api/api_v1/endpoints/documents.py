@@ -30,7 +30,20 @@ def list_documents(
     Retrieve all documents for the current user.
     """
     documents = db.query(Document).filter(Document.user_id == current_user.id).order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
-    return documents
+    
+    # Add url field to each document
+    results = []
+    for doc in documents:
+        doc_data = DocumentSchema.model_validate(doc).model_dump()
+        if doc.processed_path:
+            filename = os.path.basename(doc.processed_path)
+            doc_data["url"] = f"/media/processed/{filename}"
+        else:
+            filename = os.path.basename(doc.original_path)
+            doc_data["url"] = f"/media/uploads/{filename}"
+        results.append(doc_data)
+        
+    return results
 
 @router.get("/search", response_model=List[DocumentSchema])
 def search_documents(
@@ -107,7 +120,11 @@ async def upload_document(
     db.commit()
     db.refresh(db_obj)
     
-    return db_obj
+    # Add transient url field for the response
+    document_data = DocumentSchema.model_validate(db_obj).model_dump()
+    document_data["url"] = f"/media/uploads/{unique_filename}"
+    
+    return document_data
 
 @router.get("/{id}", response_model=DocumentSchema)
 def get_document(
@@ -122,7 +139,16 @@ def get_document(
     document = db.query(Document).filter(Document.id == id, Document.user_id == current_user.id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    return document
+        
+    doc_data = DocumentSchema.model_validate(document).model_dump()
+    if document.processed_path:
+        filename = os.path.basename(document.processed_path)
+        doc_data["url"] = f"/media/processed/{filename}"
+    else:
+        filename = os.path.basename(document.original_path)
+        doc_data["url"] = f"/media/uploads/{filename}"
+    
+    return doc_data
 
 @router.delete("/{id}", response_model=DocumentSchema)
 def delete_document(

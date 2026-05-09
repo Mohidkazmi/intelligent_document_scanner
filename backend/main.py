@@ -4,6 +4,7 @@ import logging
 from app.core.config import settings
 from app.api.api_v1.api import api_router
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.database.session import get_db, Base, engine
@@ -38,6 +39,8 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+app.mount("/media/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+app.mount("/media/processed", StaticFiles(directory=settings.PROCESSED_DIR), name="processed")
 
 @app.get("/")
 async def root():

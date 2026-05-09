@@ -1,0 +1,47 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:doc_scanner/core/constants.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+class DocumentService {
+  final _storage = const FlutterSecureStorage();
+
+  Future<String?> _getToken() async {
+    return await _storage.read(key: 'token');
+  }
+
+  Future<Map<String, dynamic>> uploadDocument(File file) async {
+    final token = await _getToken();
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('${AppConstants.baseUrl}/documents/upload'),
+    );
+
+    request.headers['Authorization'] = 'Bearer $token';
+    request.files.add(await http.MultipartFile.fromPath('file', file.path));
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      throw Exception('Failed to upload document: ${response.body}');
+    }
+  }
+
+  Future<List<dynamic>> getDocuments() async {
+    final token = await _getToken();
+    final response = await http.get(
+      Uri.parse('${AppConstants.baseUrl}/documents/'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      throw Exception('Failed to load documents');
+    }
+  }
+}

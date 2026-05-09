@@ -2,6 +2,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:doc_scanner/core/theme.dart';
 import 'package:image_cropper/image_cropper.dart';
+import 'package:doc_scanner/services/document_service.dart';
+import 'package:doc_scanner/services/scanner_service.dart';
+import 'package:doc_scanner/core/constants.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
 
 class ImagePreviewScreen extends StatefulWidget {
   final String imagePath;
@@ -15,6 +20,12 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
   String? _processedImagePath;
   bool _isProcessing = false;
   String _selectedFilter = 'original';
+  
+  final _documentService = DocumentService();
+  final _scannerService = ScannerService();
+  int? _documentId;
+  String? _remoteUrl;
+  bool _isRemote = false;
 
   @override
   void initState() {
@@ -23,18 +34,43 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
   }
 
   void _applyFilter(String filter) async {
-    // TODO: Connect to backend enhancement API
+    if (filter == 'original') {
+      setState(() {
+        _selectedFilter = filter;
+        _isRemote = false;
+      });
+      return;
+    }
+
     setState(() {
       _selectedFilter = filter;
       _isProcessing = true;
     });
-    
-    // Simulate processing for now
-    await Future.delayed(const Duration(seconds: 1));
-    
-    setState(() {
-      _isProcessing = false;
-    });
+
+    try {
+      // 1. Upload if not already uploaded
+      if (_documentId == null) {
+        final doc = await _documentService.uploadDocument(File(_processedImagePath!));
+        _documentId = doc['id'];
+      }
+
+      // 2. Enhance
+      final result = await _scannerService.enhanceImage(_documentId!, filter);
+      
+      setState(() {
+        _remoteUrl = result['url'];
+        _isRemote = true;
+        _isProcessing = false;
+      });
+    } catch (e) {
+      debugPrint("Enhancement error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Processing failed: $e"), backgroundColor: Colors.red),
+        );
+        setState(() => _isProcessing = false);
+      }
+    }
   }
 
   Future<void> _cropImage() async {
@@ -58,6 +94,9 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
     if (croppedFile != null) {
       setState(() {
         _processedImagePath = croppedFile.path;
+        _documentId = null; // Reset ID because file changed
+        _isRemote = false;
+        _selectedFilter = 'original';
       });
     }
   }
@@ -76,7 +115,10 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
           IconButton(
             icon: const Icon(Icons.check, color: AppTheme.primaryColor),
             onPressed: () {
-              // TODO: Save document logic
+              Navigator.of(context).popUntil((route) => route.isFirst);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Document saved successfully"), backgroundColor: Colors.green),
+              );
             },
           ),
         ],
@@ -97,11 +139,24 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
                 borderRadius: BorderRadius.circular(20),
                 child: Stack(
                   children: [
-                    Image.file(
-                      File(_processedImagePath!),
-                      fit: BoxFit.contain,
-                      width: double.infinity,
-                    ),
+                    _isRemote
+                        ? Image.network(
+                            '${AppConstants.baseUrl.replaceAll("/api/v1", "")}$_remoteUrl',
+                            fit: BoxFit.contain,
+                            width: double.infinity,
+                            loadingBuilder: (context, child, progress) {
+                              if (progress == null) return child;
+                              return const Center(child: CircularProgressIndicator());
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Center(child: Icon(Icons.error, color: Colors.red, size: 50));
+                            },
+                          )
+                        : Image.file(
+                            File(_processedImagePath!),
+                            fit: BoxFit.contain,
+                            width: double.infinity,
+                          ),
                     if (_isProcessing)
                       Container(
                         color: Colors.black45,

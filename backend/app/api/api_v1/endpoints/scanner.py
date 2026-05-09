@@ -92,6 +92,7 @@ async def correct_perspective(
         return {
             "document_id": document_id,
             "processed_path": processed_path,
+            "url": f"/media/processed/{processed_filename}",
             "status": "processed"
         }
     except Exception as e:
@@ -148,6 +149,7 @@ async def enhance(
         return {
             "document_id": document_id,
             "enhanced_path": enhanced_path,
+            "url": f"/media/processed/{enhanced_filename}",
             "mode": mode,
             "status": "enhanced"
         }

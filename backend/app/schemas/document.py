@@ -20,6 +20,7 @@ class DocumentInDBBase(DocumentBase):
     original_path: str
     processed_path: Optional[str] = None
     ocr_text: Optional[str] = None
+    url: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
