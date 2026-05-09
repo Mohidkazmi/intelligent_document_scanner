@@ -11,15 +11,17 @@ def enhance_image(image_path: str, mode: str):
         raise ValueError("Could not read image")
 
     if mode == "grayscale":
-        return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Add a little contrast boost for grayscale scans
+        return cv2.convertScaleAbs(gray, alpha=1.1, beta=0)
     
     elif mode == "bw":
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         # Adaptive thresholding for clean scan look
-        # Use a larger block size for better results on large images
+        # Use a larger block size (21) to remove noise and shadows
         return cv2.adaptiveThreshold(
             gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-            cv2.THRESH_BINARY, 11, 8
+            cv2.THRESH_BINARY, 21, 10
         )
     
     elif mode == "magic":
@@ -38,10 +40,10 @@ def enhance_image(image_path: str, mode: str):
 
     elif mode == "receipt":
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        # High contrast thresholding for receipts/faded text
+        # Very high contrast mean thresholding to force faded text to black
         return cv2.adaptiveThreshold(
             gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, 
-            cv2.THRESH_BINARY, 25, 15
+            cv2.THRESH_BINARY, 31, 20
         )
 
     return image

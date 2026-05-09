@@ -115,8 +115,21 @@ async def enhance(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    # We use the processed_path if available (flattened image), else the original
-    input_path = document.processed_path if document.processed_path else document.original_path
+    # Logic: Always try to use the 'processed' (flattened) image as the base for enhancement.
+    # If the document is currently 'enhanced', we need to find the base 'processed' image.
+    if document.status == "enhanced":
+        # Look for the 'processed_' prefix version which is our baseline from Phase 5
+        # or simply use the original if no processed version exists.
+        input_path = document.original_path
+        # But wait, we want the FLATTENED one. 
+        # Let's check if a processed version exists in the filename
+        base_dir = settings.PROCESSED_DIR
+        for f in os.listdir(base_dir):
+            if f.startswith("processed_") and os.path.basename(document.original_path) in f:
+                input_path = os.path.join(base_dir, f)
+                break
+    else:
+        input_path = document.processed_path if document.processed_path else document.original_path
     
     try:
         enhanced = enhance_image(input_path, mode)
