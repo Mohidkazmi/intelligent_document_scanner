@@ -6,6 +6,11 @@ from app.api import deps
 from app.database.session import get_db
 from app.models.document import Document
 from app.cv.edge_detection import detect_document_corners
+from app.cv.perspective import four_point_transform
+from app.schemas.scanner import PerspectiveRequest
+from app.core.config import settings
+import cv2
+import os
 
 router = APIRouter()
 
@@ -48,4 +53,48 @@ async def detect_edges(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Edge detection failed: {e}"
+        )
+
+@router.post("/correct-perspective/{document_id}")
+async def correct_perspective(
+    *,
+    db: Session = Depends(get_db),
+    current_user = Depends(deps.get_current_user),
+    document_id: int,
+    request: PerspectiveRequest,
+) -> Any:
+    """
+    Apply perspective correction and save the flattened image.
+    """
+    document = db.query(Document).filter(Document.id == document_id, Document.user_id == current_user.id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    try:
+        # Convert Pydantic points to list
+        pts = [[p.x, p.y] for p in request.corners]
+        
+        # Transform image
+        warped = four_point_transform(document.original_path, pts)
+        
+        # Save processed image
+        processed_filename = f"processed_{os.path.basename(document.original_path)}"
+        processed_path = os.path.join(settings.PROCESSED_DIR, processed_filename)
+        cv2.imwrite(processed_path, warped)
+        
+        # Update database
+        document.processed_path = processed_path
+        document.status = "processed"
+        db.commit()
+        db.refresh(document)
+        
+        return {
+            "document_id": document_id,
+            "processed_path": processed_path,
+            "status": "processed"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Perspective correction failed: {e}"
         )
