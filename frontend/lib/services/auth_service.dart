@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:doc_scanner/core/constants.dart';
 
@@ -17,7 +18,7 @@ class AuthService {
 
       return _handleResponse(response);
     } catch (e) {
-      print("Login Error: $e");
+      debugPrint("Login error: $e");
       rethrow;
     }
   }
