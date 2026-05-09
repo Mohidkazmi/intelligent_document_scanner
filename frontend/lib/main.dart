@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:doc_scanner/core/theme.dart';
 import 'package:doc_scanner/core/constants.dart';
 import 'package:doc_scanner/providers/auth_provider.dart';
+import 'package:doc_scanner/providers/camera_provider.dart';
 import 'package:doc_scanner/ui/screens/login_screen.dart';
 import 'package:doc_scanner/ui/screens/home_screen.dart';
 
@@ -13,6 +14,7 @@ void main() {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => CameraProvider()),
       ],
       child: const DocScannerApp(),
     ),
