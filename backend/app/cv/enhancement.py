@@ -3,7 +3,7 @@ import numpy as np
 
 def enhance_image(image_path: str, mode: str):
     """
-    Enhances the document image based on the selected mode.
+    Enhances the document image based on the selected mode with HD quality preservation.
     Modes: original, grayscale, bw, magic, receipt
     """
     image = cv2.imread(image_path)
@@ -12,40 +12,53 @@ def enhance_image(image_path: str, mode: str):
 
     if mode == "grayscale":
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        # Add a little contrast boost for grayscale scans
-        return cv2.convertScaleAbs(gray, alpha=1.1, beta=0)
+        # CLAHE (Contrast Limited Adaptive Histogram Equalization) for HD detail
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        return clahe.apply(gray)
     
     elif mode == "bw":
-        # For colored text (like red), standard grayscale can be too light.
-        # We'll take the minimum of all channels to ensure colored text stays dark.
-        gray = np.min(image, axis=2)
+        # HD Black & White: Preserve edges while removing background
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
-        # Adaptive thresholding with a larger block size and higher constant
-        return cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-            cv2.THRESH_BINARY, 31, 15
+        # 1. Denoise to prevent blocky artifacts
+        denoised = cv2.GaussianBlur(gray, (3, 3), 0)
+        
+        # 2. Adaptive thresholding with fine-tuned parameters for sharp text
+        thresh = cv2.adaptiveThreshold(
+            denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+            cv2.THRESH_BINARY, 25, 10
         )
+        
+        # 3. Soften the edges slightly to restore "High-Res" look
+        return cv2.medianBlur(thresh, 1)
     
     elif mode == "magic":
-        # Magic Color: Denoise + Sharpness + Contrast
-        # 1. Denoise (optional, can be slow)
-        # image = cv2.fastNlMeansDenoisingColored(image, None, 10, 10, 7, 21)
-        
-        # 2. Sharpen
+        # Magic Color: HDR-style enhancement
+        # Sharpening
         kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
         sharpened = cv2.filter2D(image, -1, kernel)
         
-        # 3. Brightness/Contrast
-        alpha = 1.3 # Contrast
-        beta = 5   # Brightness
-        return cv2.convertScaleAbs(sharpened, alpha=alpha, beta=beta)
+        # Contrast & Saturation boost
+        lab = cv2.cvtColor(sharpened, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+        cl = clahe.apply(l)
+        limg = cv2.merge((cl, a, b))
+        return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
 
     elif mode == "receipt":
+        # Specialized Receipt Filter: Focus on thermal paper text recovery
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        # Very high contrast mean thresholding to force faded text to black
-        return cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, 
-            cv2.THRESH_BINARY, 31, 20
+        
+        # Boost local contrast to catch faded text
+        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(12,12))
+        enhanced_gray = clahe.apply(gray)
+        
+        # Use a more aggressive threshold for thermal text
+        thresh = cv2.adaptiveThreshold(
+            enhanced_gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, 
+            cv2.THRESH_BINARY, 41, 15
         )
+        return thresh
 
     return image
