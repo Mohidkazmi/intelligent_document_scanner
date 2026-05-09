@@ -1,1 +1,1 @@
-# intelligent-document-scanner
+# Intelligent Document Scanner
