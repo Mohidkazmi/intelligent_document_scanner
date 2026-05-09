@@ -73,6 +73,45 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
     }
   }
 
+  Future<void> _flattenImage() async {
+    setState(() => _isProcessing = true);
+    try {
+      // 1. Upload if needed
+      if (_documentId == null) {
+        final doc = await _documentService.uploadDocument(File(_processedImagePath!));
+        _documentId = doc['id'];
+      }
+
+      // 2. Detect edges
+      final edgeResult = await _scannerService.detectEdges(_documentId!);
+      final corners = edgeResult['corners'];
+
+      // 3. Correct perspective
+      final perspectiveResult = await _scannerService.correctPerspective(_documentId!, corners);
+      
+      setState(() {
+        _remoteUrl = perspectiveResult['url'];
+        _isRemote = true;
+        _isProcessing = false;
+        _selectedFilter = 'original'; // Reset filter to original of the new flat image
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Image flattened successfully"), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      debugPrint("Flatten error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Flattening failed: $e"), backgroundColor: Colors.red),
+        );
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
   Future<void> _cropImage() async {
     final croppedFile = await ImageCropper().cropImage(
       sourcePath: _processedImagePath!,
@@ -108,6 +147,11 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
       appBar: AppBar(
         title: const Text("Preview"),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.auto_fix_normal, color: Colors.white),
+            tooltip: 'AI Flatten',
+            onPressed: _flattenImage,
+          ),
           IconButton(
             icon: const Icon(Icons.crop_rotate, color: Colors.white),
             onPressed: _cropImage,
