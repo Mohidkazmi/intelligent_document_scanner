@@ -9,6 +9,7 @@ class Document(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     filename = Column(String, index=True)
+    mime_type = Column(String)
     original_path = Column(String)
     processed_path = Column(String, nullable=True)
     ocr_text = Column(Text, nullable=True)

@@ -64,6 +64,7 @@ async def upload_document(
     db_obj = Document(
         user_id=current_user.id,
         filename=file.filename,
+        mime_type=file.content_type,
         original_path=file_path,
         status="uploaded"
     )

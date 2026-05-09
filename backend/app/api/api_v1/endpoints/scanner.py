@@ -23,6 +23,19 @@ async def detect_edges(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
+    # If it's a PDF, we skip edge detection and return full-page corners
+    if document.mime_type == "application/pdf":
+        return {
+            "document_id": document_id,
+            "message": "PDF detected. Edge detection skipped.",
+            "corners": [
+                {"x": 0.0, "y": 0.0},
+                {"x": 1.0, "y": 0.0},
+                {"x": 1.0, "y": 1.0},
+                {"x": 0.0, "y": 1.0}
+            ]
+        }
+    
     try:
         corners = detect_document_corners(document.original_path)
         return {
