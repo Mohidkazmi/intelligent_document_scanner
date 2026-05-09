@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -88,7 +87,8 @@ class _CameraScreenState extends State<CameraScreen> {
                     GestureDetector(
                       onTap: () async {
                         final XFile? file = await camera.takePicture();
-                        if (file != null && mounted) {
+                        if (file != null) {
+                          if (!mounted) return;
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -129,7 +129,7 @@ class _CameraScreenState extends State<CameraScreen> {
   Widget _buildOverlay(BuildContext context) {
     return ColorFiltered(
       colorFilter: ColorFilter.mode(
-        Colors.black.withOpacity(0.5),
+        Colors.black.withValues(alpha: 0.5),
         BlendMode.srcOut,
       ),
       child: Stack(

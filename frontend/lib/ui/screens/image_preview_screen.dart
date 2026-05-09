@@ -1,8 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:doc_scanner/core/theme.dart';
-import 'package:doc_scanner/providers/camera_provider.dart';
+import 'package:image_cropper/image_cropper.dart';
 
 class ImagePreviewScreen extends StatefulWidget {
   final String imagePath;
@@ -38,6 +37,31 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
     });
   }
 
+  Future<void> _cropImage() async {
+    final croppedFile = await ImageCropper().cropImage(
+      sourcePath: _processedImagePath!,
+      uiSettings: [
+        AndroidUiSettings(
+          toolbarTitle: 'Crop Document',
+          toolbarColor: AppTheme.surfaceColor,
+          toolbarWidgetColor: Colors.white,
+          initAspectRatio: CropAspectRatioPreset.original,
+          lockAspectRatio: false,
+          activeControlsWidgetColor: AppTheme.primaryColor,
+        ),
+        IOSUiSettings(
+          title: 'Crop Document',
+        ),
+      ],
+    );
+
+    if (croppedFile != null) {
+      setState(() {
+        _processedImagePath = croppedFile.path;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -45,6 +69,10 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
       appBar: AppBar(
         title: const Text("Preview"),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.crop_rotate, color: Colors.white),
+            onPressed: _cropImage,
+          ),
           IconButton(
             icon: const Icon(Icons.check, color: AppTheme.primaryColor),
             onPressed: () {
@@ -62,7 +90,7 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10),
+                  BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 10),
                 ],
               ),
               child: ClipRRect(

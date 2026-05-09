@@ -17,7 +17,6 @@ class AppTheme {
       primary: primaryColor,
       secondary: accentColor,
       surface: surfaceColor,
-      background: backgroundColor,
     ),
     textTheme: GoogleFonts.outfitTextTheme(ThemeData.dark().textTheme).copyWith(
       headlineMedium: GoogleFonts.outfit(

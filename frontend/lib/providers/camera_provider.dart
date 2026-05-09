@@ -29,7 +29,7 @@ class CameraProvider with ChangeNotifier {
       _isInitialized = true;
       notifyListeners();
     } catch (e) {
-      print("Camera Initialization Error: $e");
+      debugPrint("Camera Initialization Error: $e");
     }
   }
 
