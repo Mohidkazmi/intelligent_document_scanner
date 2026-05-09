@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:doc_scanner/providers/auth_provider.dart';
 import 'package:doc_scanner/ui/screens/camera_screen.dart';
+import 'package:doc_scanner/ui/screens/document_detail_screen.dart';
 import 'package:doc_scanner/services/document_service.dart';
 import 'package:doc_scanner/core/theme.dart';
 import 'package:doc_scanner/core/constants.dart';
@@ -36,6 +37,20 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       debugPrint("Fetch error: $e");
       setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _deleteDocument(int id) async {
+    try {
+      await _documentService.deleteDocument(id);
+      _fetchDocuments();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Document deleted")),
+        );
+      }
+    } catch (e) {
+      debugPrint("Delete error: $e");
     }
   }
 
@@ -115,8 +130,17 @@ class _HomeScreenState extends State<HomeScreen> {
         final imageUrl = '${AppConstants.baseUrl.replaceAll("/api/v1", "")}${doc['url']}';
 
         return GestureDetector(
-          onTap: () {
-            // TODO: View document detail / Open PDF
+          onTap: () async {
+            final result = await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DocumentDetailScreen(
+                  document: doc,
+                  imageUrl: imageUrl,
+                ),
+              ),
+            );
+            if (result == true) _fetchDocuments();
           },
           child: Container(
             decoration: BoxDecoration(
@@ -124,46 +148,76 @@ class _HomeScreenState extends State<HomeScreen> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white10),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Stack(
               children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                    child: Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      errorBuilder: (context, error, stackTrace) => const Center(
-                        child: Icon(Icons.broken_image, color: Colors.white24),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                        child: Image.network(
+                          imageUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          errorBuilder: (context, error, stackTrace) => const Center(
+                            child: Icon(Icons.broken_image, color: Colors.white24),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            doc['filename'],
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            formattedDate,
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        doc['filename'],
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: IconButton(
+                    icon: const Icon(Icons.delete_sweep, color: Colors.redAccent, size: 20),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          backgroundColor: AppTheme.surfaceColor,
+                          title: const Text("Delete?", style: TextStyle(color: Colors.white)),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(context), child: const Text("No")),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                _deleteDocument(doc['id']);
+                              }, 
+                              child: const Text("Yes", style: TextStyle(color: Colors.red))
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        formattedDate,
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ),
               ],

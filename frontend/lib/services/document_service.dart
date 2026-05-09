@@ -57,4 +57,16 @@ class DocumentService {
       throw Exception('Failed to load documents');
     }
   }
+
+  Future<void> deleteDocument(int id) async {
+    final token = await _getToken();
+    final response = await http.delete(
+      Uri.parse('${AppConstants.baseUrl}/documents/$id'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to delete document');
+    }
+  }
 }
