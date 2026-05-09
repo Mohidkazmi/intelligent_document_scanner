@@ -1,0 +1,21 @@
+# Backend
+backend/__pycache__/
+backend/.env
+backend/.venv
+backend/uploads/
+backend/processed/
+
+# Flutter
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+
+# IDEs
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

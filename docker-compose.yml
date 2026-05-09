@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: doc_scanner_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: doc_scanner
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    container_name: doc_scanner_backend
+    volumes:
+      - ./backend:/backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/doc_scanner
+      - POSTGRES_SERVER=db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=doc_scanner
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
