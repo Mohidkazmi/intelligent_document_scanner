@@ -193,7 +193,12 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
                               return const Center(child: CircularProgressIndicator());
                             },
                             errorBuilder: (context, error, stackTrace) {
-                              return const Center(child: Icon(Icons.error, color: Colors.red, size: 50));
+                              debugPrint("Network Image Error: $error");
+                              return Image.file(
+                                File(_processedImagePath!),
+                                fit: BoxFit.contain,
+                                width: double.infinity,
+                              );
                             },
                           )
                         : Image.file(

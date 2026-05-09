@@ -46,9 +46,15 @@ class CameraProvider with ChangeNotifier {
 
     try {
       final XFile file = await _controller!.takePicture();
+      
+      // Turn off flash if it was in torch mode
+      if (_flashMode == FlashMode.torch) {
+        await toggleFlash();
+      }
+      
       return file;
     } catch (e) {
-      print("Error taking picture: $e");
+      debugPrint("Error taking picture: $e");
       return null;
     }
   }
