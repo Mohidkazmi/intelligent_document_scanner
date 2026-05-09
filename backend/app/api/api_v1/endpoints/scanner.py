@@ -7,6 +7,7 @@ from app.database.session import get_db
 from app.models.document import Document
 from app.cv.edge_detection import detect_document_corners
 from app.cv.perspective import four_point_transform
+from app.cv.enhancement import enhance_image
 from app.schemas.scanner import PerspectiveRequest
 from app.core.config import settings
 import cv2
@@ -97,4 +98,48 @@ async def correct_perspective(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Perspective correction failed: {e}"
+        )
+
+@router.post("/enhance/{document_id}")
+async def enhance(
+    *,
+    db: Session = Depends(get_db),
+    current_user = Depends(deps.get_current_user),
+    document_id: int,
+    mode: str = "magic",
+) -> Any:
+    """
+    Apply image enhancement filters (magic, grayscale, bw, receipt).
+    """
+    document = db.query(Document).filter(Document.id == document_id, Document.user_id == current_user.id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # We use the processed_path if available (flattened image), else the original
+    input_path = document.processed_path if document.processed_path else document.original_path
+    
+    try:
+        enhanced = enhance_image(input_path, mode)
+        
+        # Save enhanced image
+        enhanced_filename = f"enhanced_{mode}_{os.path.basename(input_path)}"
+        enhanced_path = os.path.join(settings.PROCESSED_DIR, enhanced_filename)
+        cv2.imwrite(enhanced_path, enhanced)
+        
+        # Update database
+        document.processed_path = enhanced_path
+        document.status = "enhanced"
+        db.commit()
+        db.refresh(document)
+        
+        return {
+            "document_id": document_id,
+            "enhanced_path": enhanced_path,
+            "mode": mode,
+            "status": "enhanced"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Enhancement failed: {e}"
         )
