@@ -10,6 +10,9 @@ from app.database.session import get_db
 from app.models.document import Document
 from app.schemas.document import Document as DocumentSchema
 from app.core.config import settings
+from app.services.pdf_service import generate_searchable_pdf
+from fastapi.responses import FileResponse
+import os
 
 router = APIRouter()
 
@@ -112,3 +115,43 @@ def delete_document(
     db.delete(document)
     db.commit()
     return document
+
+@router.get("/{id}/download-pdf")
+async def download_pdf(
+    *,
+    db: Session = Depends(get_db),
+    current_user = Depends(deps.get_current_user),
+    id: int,
+    lang: str = "eng",
+) -> Any:
+    """
+    Generate and download a searchable PDF of the document.
+    """
+    document = db.query(Document).filter(Document.id == id, Document.user_id == current_user.id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Use the best available version (processed/enhanced)
+    input_path = document.processed_path if document.processed_path else document.original_path
+    
+    # Check if it's already a PDF
+    if document.mime_type == "application/pdf":
+        return FileResponse(document.original_path, filename=document.filename, media_type="application/pdf")
+
+    pdf_filename = f"{os.path.splitext(os.path.basename(input_path))[0]}.pdf"
+    pdf_path = os.path.join(settings.PROCESSED_DIR, pdf_filename)
+
+    try:
+        # Generate the PDF if it doesn't exist or we want to re-generate
+        generate_searchable_pdf(input_path, pdf_path, lang=lang)
+        
+        return FileResponse(
+            pdf_path, 
+            filename=pdf_filename, 
+            media_type="application/pdf"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate PDF: {e}"
+        )
