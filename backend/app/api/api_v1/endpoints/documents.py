@@ -30,7 +30,20 @@ def list_documents(
     Retrieve all documents for the current user.
     """
     documents = db.query(Document).filter(Document.user_id == current_user.id).order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
-    return documents
+    
+    # Add url field to each document
+    results = []
+    for doc in documents:
+        doc_data = DocumentSchema.model_validate(doc).model_dump()
+        if doc.processed_path:
+            filename = os.path.basename(doc.processed_path)
+            doc_data["url"] = f"/media/processed/{filename}"
+        else:
+            filename = os.path.basename(doc.original_path)
+            doc_data["url"] = f"/media/uploads/{filename}"
+        results.append(doc_data)
+        
+    return results
 
 @router.get("/search", response_model=List[DocumentSchema])
 def search_documents(
@@ -57,9 +70,13 @@ async def upload_document(
     db: Session = Depends(get_db),
     current_user = Depends(deps.get_current_user),
     file: UploadFile = File(...),
+    parent_document_id: int = None,
 ) -> Any:
     """
     Upload a document.
+    
+    If parent_document_id is provided, this document is treated as a crop of the parent.
+    Filters applied to this document will use the parent's base_processed_path if available.
     """
     # Validate content type
     if file.content_type not in SUPPORTED_FORMATS:
@@ -79,6 +96,18 @@ async def upload_document(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File size exceeds 20MB limit."
         )
+
+    # Validate parent_document_id if provided
+    if parent_document_id:
+        parent_doc = db.query(Document).filter(
+            Document.id == parent_document_id,
+            Document.user_id == current_user.id
+        ).first()
+        if not parent_doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Parent document not found"
+            )
 
     # Generate unique filename
     file_ext = os.path.splitext(file.filename)[1]
@@ -101,13 +130,18 @@ async def upload_document(
         filename=file.filename,
         mime_type=file.content_type,
         original_path=file_path,
+        parent_document_id=parent_document_id,
         status="uploaded"
     )
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)
     
-    return db_obj
+    # Add transient url field for the response
+    document_data = DocumentSchema.model_validate(db_obj).model_dump()
+    document_data["url"] = f"/media/uploads/{unique_filename}"
+    
+    return document_data
 
 @router.get("/{id}", response_model=DocumentSchema)
 def get_document(
@@ -122,7 +156,16 @@ def get_document(
     document = db.query(Document).filter(Document.id == id, Document.user_id == current_user.id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    return document
+        
+    doc_data = DocumentSchema.model_validate(document).model_dump()
+    if document.processed_path:
+        filename = os.path.basename(document.processed_path)
+        doc_data["url"] = f"/media/processed/{filename}"
+    else:
+        filename = os.path.basename(document.original_path)
+        doc_data["url"] = f"/media/uploads/{filename}"
+    
+    return doc_data
 
 @router.delete("/{id}", response_model=DocumentSchema)
 def delete_document(

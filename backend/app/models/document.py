@@ -11,8 +11,11 @@ class Document(Base):
     filename = Column(String, index=True)
     mime_type = Column(String)
     original_path = Column(String)
-    processed_path = Column(String, nullable=True)
+    base_processed_path = Column(String, nullable=True)  # Perspective-corrected base image
+    processed_path = Column(String, nullable=True)  # Current image (may have filters applied)
+    parent_document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)  # For cropped images
     ocr_text = Column(Text, nullable=True)
+    document_type = Column(String, default="typed")  # typed, handwritten, other
     status = Column(String, default="uploaded") # uploaded, processing, completed, failed
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

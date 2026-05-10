@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:doc_scanner/core/theme.dart';
 import 'package:doc_scanner/providers/auth_provider.dart';
 import 'package:doc_scanner/ui/screens/register_screen.dart';
+import 'package:doc_scanner/ui/screens/home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -21,7 +22,11 @@ class _LoginScreenState extends State<LoginScreen> {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     try {
       await auth.login(_emailController.text, _passwordController.text);
-      // Navigation will be handled by main.dart based on state
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
@@ -47,7 +52,11 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.document_scanner_rounded, size: 80, color: AppTheme.primaryColor),
+              const Icon(
+                Icons.document_scanner_rounded,
+                size: 80,
+                color: AppTheme.primaryColor,
+              ),
               const SizedBox(height: 24),
               Text(
                 "Welcome Back",
@@ -92,7 +101,10 @@ class _LoginScreenState extends State<LoginScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text("Don't have an account? ", style: TextStyle(color: Colors.white70)),
+                  const Text(
+                    "Don't have an account? ",
+                    style: TextStyle(color: Colors.white70),
+                  ),
                   GestureDetector(
                     onTap: () => Navigator.push(
                       context,
@@ -100,7 +112,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     child: const Text(
                       "Sign Up",
-                      style: TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: AppTheme.primaryColor,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ],
@@ -142,7 +157,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 )
               : null,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 16,
+          ),
         ),
       ),
     );
