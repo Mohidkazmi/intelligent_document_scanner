@@ -81,7 +81,7 @@ async def correct_perspective(
         # Save processed image
         processed_filename = f"processed_{os.path.basename(document.original_path)}"
         processed_path = os.path.join(settings.PROCESSED_DIR, processed_filename)
-        cv2.imwrite(processed_path, warped, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
+        cv2.imwrite(processed_path, warped, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
         
         # Update database
         # Set base_processed_path as the foundation image for all filters
@@ -168,12 +168,17 @@ async def enhance(
             # If conversion fails, fall back to saving as-is
             pass
 
-        # Save enhanced image using original filename as base (strip any filter prefixes)
-        # Use the original filename to avoid stacking filter names
-        original_basename = os.path.basename(document.original_path)
-        enhanced_filename = f"enhanced_{mode}_{document_type}_{original_basename}"
-        enhanced_path = os.path.join(settings.PROCESSED_DIR, enhanced_filename)
-        cv2.imwrite(enhanced_path, enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
+        # Save enhanced image using original filename stem as base.
+        # For bw/grayscale use PNG to avoid JPEG chroma artifacts around text.
+        original_stem = os.path.splitext(os.path.basename(document.original_path))[0]
+        if mode in ["bw", "grayscale"]:
+            enhanced_filename = f"enhanced_{mode}_{document_type}_{original_stem}.png"
+            enhanced_path = os.path.join(settings.PROCESSED_DIR, enhanced_filename)
+            cv2.imwrite(enhanced_path, enhanced, [int(cv2.IMWRITE_PNG_COMPRESSION), 3])
+        else:
+            enhanced_filename = f"enhanced_{mode}_{document_type}_{original_stem}.jpg"
+            enhanced_path = os.path.join(settings.PROCESSED_DIR, enhanced_filename)
+            cv2.imwrite(enhanced_path, enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
         
         # Update database
         # processed_path holds the current view, but base_processed_path stays constant

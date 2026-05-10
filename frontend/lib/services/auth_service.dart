@@ -42,7 +42,7 @@ class AuthService {
 
       return _handleResponse(response);
     } catch (e) {
-      print("Register Error: $e");
+      debugPrint("Register Error: $e");
       rethrow;
     }
   }
@@ -59,7 +59,7 @@ class AuthService {
   Map<String, dynamic> _handleResponse(http.Response response) {
     // Some backend endpoints may return 2xx with an empty body (e.g. register).
     // Handle empty responses gracefully to avoid JSON parse errors.
-    final raw = response.body == null ? '' : response.body.trim();
+    final raw = response.body.trim();
     Map<String, dynamic> body = {};
     if (raw.isNotEmpty) {
       try {

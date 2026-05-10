@@ -5,12 +5,16 @@ import 'package:image_cropper/image_cropper.dart';
 import 'package:doc_scanner/services/document_service.dart';
 import 'package:doc_scanner/services/scanner_service.dart';
 import 'package:doc_scanner/core/constants.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:http/http.dart' as http;
 
 class ImagePreviewScreen extends StatefulWidget {
   final String imagePath;
-  const ImagePreviewScreen({super.key, required this.imagePath});
+  final bool enableAutoCrop;
+
+  const ImagePreviewScreen({
+    super.key,
+    required this.imagePath,
+    this.enableAutoCrop = false,
+  });
 
   @override
   State<ImagePreviewScreen> createState() => _ImagePreviewScreenState();
@@ -23,6 +27,7 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
   bool _isProcessing = false;
   String _selectedFilter = 'original';
   String _selectedDocumentType = 'typed';
+  bool _hasUnsavedChanges = false; // Track if filters/edits have been applied
 
   final _documentService = DocumentService();
   final _scannerService = ScannerService();
@@ -36,10 +41,12 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
     super.initState();
     _processedImagePath = widget.imagePath;
     _originalImagePath = widget.imagePath; // Store original for reference
-    // Attempt auto-crop/flatten for camera-captured images
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _autoCropAndFlatten();
-    });
+    // Attempt auto-crop/flatten only when explicitly enabled (camera capture).
+    if (widget.enableAutoCrop) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _autoCropAndFlatten();
+      });
+    }
   }
 
   Future<void> _autoCropAndFlatten() async {
@@ -87,6 +94,7 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
       setState(() {
         _selectedFilter = filter;
         _isRemote = false;
+        _hasUnsavedChanges = false; // Reset when back to original
       });
       return;
     }
@@ -118,6 +126,7 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
         _remoteUrl = result['url'];
         _isRemote = true;
         _isProcessing = false;
+        _hasUnsavedChanges = true; // Mark that filter has been applied
       });
     } catch (e) {
       debugPrint("Enhancement error: $e");
@@ -243,147 +252,191 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.backgroundColor,
-      appBar: AppBar(
-        title: const Text("Preview"),
+  Future<bool> _onWillPop() async {
+    if (!_hasUnsavedChanges) {
+      return true; // Allow navigation if no changes
+    }
+
+    // Show confirmation dialog
+    final shouldDiscard = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('Discard Changes?'),
+        content: const Text(
+          'You have unsaved filter changes. Are you sure you want to discard them?',
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.auto_fix_normal, color: Colors.white),
-            tooltip: 'AI Flatten',
-            onPressed: _flattenImage,
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep Editing'),
           ),
-          IconButton(
-            icon: const Icon(Icons.crop_rotate, color: Colors.white),
-            onPressed: _cropImage,
-          ),
-          IconButton(
-            icon: const Icon(Icons.check, color: AppTheme.primaryColor),
-            onPressed: () {
-              Navigator.of(context).popUntil((route) => route.isFirst);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("Document saved successfully"),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Discard', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // 1. Image Display
-          Expanded(
-            child: Container(
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.5),
-                    blurRadius: 10,
-                  ),
-                ],
+    );
+
+    return shouldDiscard ?? false;
+  }
+
+  void _saveAndClose() {
+    _hasUnsavedChanges = false; // Mark as saved
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Document saved successfully"),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        backgroundColor: AppTheme.backgroundColor,
+        appBar: AppBar(
+          title: const Text("Preview"),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.auto_fix_normal, color: Colors.white),
+              tooltip: 'AI Flatten',
+              onPressed: _flattenImage,
+            ),
+            IconButton(
+              icon: const Icon(Icons.crop_rotate, color: Colors.white),
+              onPressed: _cropImage,
+            ),
+            if (_hasUnsavedChanges)
+              IconButton(
+                icon: const Icon(Icons.check, color: Colors.green),
+                tooltip: 'Save Changes',
+                onPressed: _saveAndClose,
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: Stack(
-                  children: [
-                    _isRemote
-                        ? Image.network(
-                            '${AppConstants.baseUrl.replaceAll("/api/v1", "")}$_remoteUrl',
-                            fit: BoxFit.contain,
-                            width: double.infinity,
-                            loadingBuilder: (context, child, progress) {
-                              if (progress == null) return child;
-                              return const Center(
-                                child: CircularProgressIndicator(),
-                              );
-                            },
-                            errorBuilder: (context, error, stackTrace) {
-                              debugPrint("Network Image Error: $error");
-                              return Image.file(
-                                File(_processedImagePath!),
-                                fit: BoxFit.contain,
-                                width: double.infinity,
-                              );
-                            },
-                          )
-                        : Image.file(
-                            File(_processedImagePath!),
-                            fit: BoxFit.contain,
-                            width: double.infinity,
-                          ),
-                    if (_isProcessing)
-                      Container(
-                        color: Colors.black45,
-                        child: const Center(child: CircularProgressIndicator()),
-                      ),
+          ],
+        ),
+        body: Column(
+          children: [
+            // 1. Image Display
+            Expanded(
+              child: Container(
+                margin: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      blurRadius: 10,
+                    ),
                   ],
                 ),
-              ),
-            ),
-          ),
-
-          // 2. Document Type Selector
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Document Type',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Stack(
                     children: [
-                      _buildDocumentTypeItem(
-                        'typed',
-                        'Typed',
-                        Icons.description,
-                      ),
-                      const SizedBox(width: 8),
-                      _buildDocumentTypeItem(
-                        'handwritten',
-                        'Handwritten',
-                        Icons.edit,
-                      ),
-                      const SizedBox(width: 8),
-                      _buildDocumentTypeItem('other', 'Other', Icons.layers),
+                      _isRemote
+                          ? Image.network(
+                              '${AppConstants.baseUrl.replaceAll("/api/v1", "")}$_remoteUrl',
+                              fit: BoxFit.contain,
+                              width: double.infinity,
+                              loadingBuilder: (context, child, progress) {
+                                if (progress == null) return child;
+                                return const Center(
+                                  child: CircularProgressIndicator(),
+                                );
+                              },
+                              errorBuilder: (context, error, stackTrace) {
+                                debugPrint("Network Image Error: $error");
+                                return Image.file(
+                                  File(_processedImagePath!),
+                                  fit: BoxFit.contain,
+                                  width: double.infinity,
+                                );
+                              },
+                            )
+                          : Image.file(
+                              File(_processedImagePath!),
+                              fit: BoxFit.contain,
+                              width: double.infinity,
+                            ),
+                      if (_isProcessing)
+                        Container(
+                          color: Colors.black45,
+                          child: const Center(
+                            child: CircularProgressIndicator(),
+                          ),
+                        ),
                     ],
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
 
-          // 3. Filter Bar
-          Container(
-            height: 120,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: [
-                _buildFilterItem('original', 'Original', Icons.image_outlined),
-                _buildFilterItem('magic', 'Magic', Icons.auto_fix_high),
-                _buildFilterItem('bw', 'B&W', Icons.contrast),
-                _buildFilterItem('grayscale', 'Grayscale', Icons.gradient),
-                _buildFilterItem('receipt', 'Receipt', Icons.receipt_long),
-              ],
+            // 2. Document Type Selector
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Document Type',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildDocumentTypeItem(
+                          'typed',
+                          'Typed',
+                          Icons.description,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildDocumentTypeItem(
+                          'handwritten',
+                          'Handwritten',
+                          Icons.edit,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildDocumentTypeItem('other', 'Other', Icons.layers),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+
+            // 3. Filter Bar
+            Container(
+              height: 120,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                children: [
+                  _buildFilterItem(
+                    'original',
+                    'Original',
+                    Icons.image_outlined,
+                  ),
+                  _buildFilterItem('magic', 'Magic', Icons.auto_fix_high),
+                  _buildFilterItem('bw', 'B&W', Icons.contrast),
+                  _buildFilterItem('grayscale', 'Grayscale', Icons.gradient),
+                  _buildFilterItem('receipt', 'Receipt', Icons.receipt_long),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

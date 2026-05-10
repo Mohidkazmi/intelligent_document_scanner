@@ -104,12 +104,14 @@ class _CameraScreenState extends State<CameraScreen> {
                               source: ImageSource.gallery,
                             );
                             if (file != null) {
-                              if (!mounted) return;
+                              if (!context.mounted) return;
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) =>
-                                      ImagePreviewScreen(imagePath: file.path),
+                                  builder: (_) => ImagePreviewScreen(
+                                    imagePath: file.path,
+                                    enableAutoCrop: false,
+                                  ),
                                 ),
                               );
                             }
@@ -122,12 +124,14 @@ class _CameraScreenState extends State<CameraScreen> {
                           onTap: () async {
                             final XFile? file = await camera.takePicture();
                             if (file != null) {
-                              if (!mounted) return;
+                              if (!context.mounted) return;
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) =>
-                                      ImagePreviewScreen(imagePath: file.path),
+                                  builder: (_) => ImagePreviewScreen(
+                                    imagePath: file.path,
+                                    enableAutoCrop: true,
+                                  ),
                                 ),
                               );
                             }
