@@ -1,244 +1,577 @@
 import cv2
 import numpy as np
+from skimage.filters import threshold_sauvola
+
+
+MAX_PROCESSING_SIDE = 1700
+MAX_BW_SIDE = 1400
 
 
 def enhance_image(image_path: str, mode: str, document_type: str = "typed"):
-    """
-    Enhances the document image based on the selected mode and document type.
-
-    Modes:
-    - grayscale
-    - bw
-    - magic
-    - receipt
-
-    Document Types:
-    - typed: For printed/typed documents (uses aggressive enhancement)
-    - handwritten: For handwritten documents (preserves ink details)
-    - other: For mixed content (balanced enhancement)
-
-    Returns:
-        np.ndarray
-    """
 
     image = cv2.imread(image_path)
 
     if image is None:
         raise ValueError("Could not read image")
 
-    # Get document-specific parameters
+    try:
+        if len(image.shape) == 2:
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+
+        elif len(image.shape) == 3 and image.shape[2] == 4:
+            image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+
+    except Exception:
+        pass
+
     params = _get_enhancement_params(document_type)
 
-    # =========================================================
-    # GRAYSCALE
-    # =========================================================
+    image = _resize_for_processing(image, MAX_PROCESSING_SIDE)
+
     if mode == "grayscale":
         return _enhance_grayscale(image, params)
 
-    # =========================================================
-    # BLACK & WHITE (Scanner Style)
-    # =========================================================
     elif mode == "bw":
         return _enhance_bw(image, params)
 
-    # =========================================================
-    # MAGIC COLOR
-    # =========================================================
     elif mode == "magic":
         return _enhance_magic(image, params)
 
-    # =========================================================
-    # RECEIPT MODE
-    # =========================================================
     elif mode == "receipt":
         return _enhance_receipt(image, params)
 
-    # =========================================================
-    # DEFAULT
-    # =========================================================
     return image
 
 
+# -------------------------------------------------------------------
+# PARAMETERS
+# -------------------------------------------------------------------
+
 def _get_enhancement_params(document_type: str):
-    """
-    Returns enhancement parameters based on document type.
-    """
+
     params = {
+
         "typed": {
-            "denoise_h": 10,
-            "denoise_template": 7,
-            "denoise_search": 21,
-            "clahe_clip": 3.0,
+            "clahe_clip": 1.0,
             "clahe_grid": (8, 8),
-            "blur_kernel": (35, 35),
-            "morph_kernel_size": 2,
-            "adaptive_block_size": 11,
-            "adaptive_constant": 2,
-            "saturation_boost": 1.15,
+
+            "blur_kernel": (61, 61),
+
+            "adaptive_block_size": 31,
+
+            "gamma": 1.02,
+
+            "bw_min_component_area": 18,
         },
+
         "handwritten": {
-            "denoise_h": 7,
-            "denoise_template": 5,
-            "denoise_search": 21,
-            "clahe_clip": 2.0,
+            "clahe_clip": 1.3,
             "clahe_grid": (8, 8),
-            "blur_kernel": (25, 25),
-            "morph_kernel_size": 1,
-            "adaptive_block_size": 15,
-            "adaptive_constant": 5,
-            "saturation_boost": 1.05,
+
+            "blur_kernel": (51, 51),
+
+            "adaptive_block_size": 37,
+
+            "gamma": 0.96,
+
+            "bw_min_component_area": 10,
         },
+
         "other": {
-            "denoise_h": 8,
-            "denoise_template": 6,
-            "denoise_search": 21,
-            "clahe_clip": 2.5,
+            "clahe_clip": 1.1,
             "clahe_grid": (8, 8),
-            "blur_kernel": (30, 30),
-            "morph_kernel_size": 1,
-            "adaptive_block_size": 13,
-            "adaptive_constant": 3,
-            "saturation_boost": 1.10,
-        },
+
+            "blur_kernel": (55, 55),
+
+            "adaptive_block_size": 33,
+
+            "gamma": 1.0,
+
+            "bw_min_component_area": 14,
+        }
     }
-    
+
     return params.get(document_type, params["typed"])
 
 
+# -------------------------------------------------------------------
+# UTILITIES
+# -------------------------------------------------------------------
+
+def _resize_for_processing(image, max_side: int):
+
+    h, w = image.shape[:2]
+
+    longest = max(h, w)
+
+    if longest <= max_side:
+        return image
+
+    scale = max_side / float(longest)
+
+    new_w = max(1, int(w * scale))
+    new_h = max(1, int(h * scale))
+
+    return cv2.resize(
+        image,
+        (new_w, new_h),
+        interpolation=cv2.INTER_AREA
+    )
+
+
+def _correct_gamma(gray: np.ndarray, gamma: float):
+
+    inv_gamma = 1.0 / gamma
+
+    table = np.array([
+        ((i / 255.0) ** inv_gamma) * 255
+        for i in range(256)
+    ], dtype=np.uint8)
+
+    return cv2.LUT(gray, table)
+
+
+def _apply_clahe(gray: np.ndarray, clip: float, grid):
+
+    clahe = cv2.createCLAHE(
+        clipLimit=clip,
+        tileGridSize=grid
+    )
+
+    return clahe.apply(gray)
+
+
+def _remove_shadow(gray: np.ndarray, blur_kernel):
+    """
+    Estimate background via Gaussian blur and normalize illumination.
+    Avoids morphological closing artifacts.
+    """
+    # Use direct Gaussian blur for cleaner background estimation
+    # Blur kernel is typically (35, 35) or (33, 33) which is good
+    blur_size = blur_kernel[0] if blur_kernel[0] % 2 == 1 else blur_kernel[0] + 1
+    
+    background = cv2.GaussianBlur(
+        gray.astype(np.float32),
+        (blur_size, blur_size),
+        0
+    )
+    background = np.clip(background, 1, None)  # Avoid division by zero
+    
+    normalized = (gray.astype(np.float32) / background) * 127.0
+    normalized = np.clip(normalized, 0, 255).astype(np.uint8)
+    
+    return normalized
+
+
+def _color_aware_to_gray(image: np.ndarray) -> np.ndarray:
+
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+    _, s, v = cv2.split(hsv)
+
+    color_mask = cv2.bitwise_and(
+        cv2.threshold(s, 40, 255, cv2.THRESH_BINARY)[1],
+        cv2.threshold(v, 40, 255, cv2.THRESH_BINARY)[1]
+    )
+
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+
+    l, a, b_ch = cv2.split(lab)
+
+    darkened_l = np.where(
+        color_mask > 0,
+        np.clip(l.astype(np.float32) * 0.45, 0, 255).astype(np.uint8),
+        l
+    )
+
+    lab_modified = cv2.merge((darkened_l, a, b_ch))
+
+    bgr_modified = cv2.cvtColor(
+        lab_modified,
+        cv2.COLOR_LAB2BGR
+    )
+
+    return cv2.cvtColor(
+        bgr_modified,
+        cv2.COLOR_BGR2GRAY
+    )
+
+
+def _remove_small_black_components(binary: np.ndarray, min_area: int):
+
+    if min_area <= 1:
+        return binary
+
+    inverted = cv2.bitwise_not(binary)
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+        inverted,
+        connectivity=8
+    )
+
+    cleaned = np.zeros_like(inverted)
+
+    for i in range(1, num_labels):
+
+        area = stats[i, cv2.CC_STAT_AREA]
+        w = stats[i, cv2.CC_STAT_WIDTH]
+        h = stats[i, cv2.CC_STAT_HEIGHT]
+
+        if area >= min_area:
+            cleaned[labels == i] = 255
+            continue
+
+        aspect = max(w, h) / max(1, min(w, h))
+
+        fill_ratio = area / float((w * h) + 1)
+
+        if aspect >= 2.5 or fill_ratio < 0.35:
+            cleaned[labels == i] = 255
+
+    return cv2.bitwise_not(cleaned)
+
+
+# -------------------------------------------------------------------
+# THRESHOLD
+# -------------------------------------------------------------------
+
+def _threshold(enhanced: np.ndarray, params: dict):
+
+    window_size = params["adaptive_block_size"]
+
+    if window_size % 2 == 0:
+        window_size += 1
+
+    # Typed docs need higher k to avoid bold text
+    if window_size <= 33:
+        k = 0.30
+    else:
+        k = 0.22
+
+    thresh_sauvola = threshold_sauvola(
+        enhanced,
+        window_size=window_size,
+        k=k
+    )
+
+    binary = (
+        enhanced > thresh_sauvola
+    ).astype(np.uint8) * 255
+
+    return binary
+
+
+# -------------------------------------------------------------------
+# GRAYSCALE
+# -------------------------------------------------------------------
+
 def _enhance_grayscale(image, params):
-    """Grayscale enhancement with document-type specific parameters."""
+
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    # Shadow normalization
-    bg = cv2.GaussianBlur(gray, params["blur_kernel"], 0)
-    normalized = cv2.divide(gray, bg, scale=255)
-
-    # Contrast enhancement
-    clahe = cv2.createCLAHE(
-        clipLimit=params["clahe_clip"],
-        tileGridSize=params["clahe_grid"]
-    )
-    enhanced = clahe.apply(normalized)
-
-    return enhanced
-
-
-def _enhance_bw(image, params):
-    """Black & White enhancement with document-type specific parameters."""
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    # 1. Remove shadows / uneven lighting
-    bg = cv2.GaussianBlur(gray, params["blur_kernel"], 0)
-    normalized = cv2.divide(gray, bg, scale=255)
-
-    # 2. Denoise while preserving edges
-    denoised = cv2.fastNlMeansDenoising(
-        normalized,
-        None,
-        params["denoise_h"],
-        params["denoise_template"],
-        params["denoise_search"]
+    shadow_free = _remove_shadow(
+        gray,
+        params["blur_kernel"]
     )
 
-    # 3. Contrast enhancement
-    clahe = cv2.createCLAHE(
-        clipLimit=params["clahe_clip"],
-        tileGridSize=params["clahe_grid"]
+    gamma_corrected = _correct_gamma(
+        shadow_free,
+        params["gamma"]
     )
-    enhanced = clahe.apply(denoised)
 
-    # 4. Normalize intensities
+    enhanced = _apply_clahe(
+        gamma_corrected,
+        params["clahe_clip"],
+        params["clahe_grid"]
+    )
+
+    blurred = cv2.GaussianBlur(
+        enhanced,
+        (0, 0),
+        sigmaX=1.2
+    )
+
+    enhanced = cv2.addWeighted(
+        enhanced,
+        1.25,
+        blurred,
+        -0.25,
+        0
+    )
+
     enhanced = cv2.normalize(
         enhanced,
-        None,
+        enhanced.copy(),
         0,
         255,
         cv2.NORM_MINMAX
     )
 
-    # 5. OTSU threshold
-    _, thresh = cv2.threshold(
-        enhanced,
-        0,
-        255,
-        cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    return enhanced
+
+
+# -------------------------------------------------------------------
+# BLACK & WHITE
+# -------------------------------------------------------------------
+
+def _enhance_bw(image, params):
+
+    image = _resize_for_processing(image, MAX_BW_SIDE)
+
+    gray = _color_aware_to_gray(image)
+
+    std_dev = float(np.std(gray))
+
+    # ---------------------------------------------------------------
+    # SHADOW REMOVAL
+    # ---------------------------------------------------------------
+
+    if std_dev > 32:
+        normalized = _remove_shadow(
+            gray,
+            params["blur_kernel"]
+        )
+    else:
+        normalized = gray.copy()
+
+    # ---------------------------------------------------------------
+    # DENOISE
+    # ---------------------------------------------------------------
+
+    denoised = cv2.fastNlMeansDenoising(
+        normalized,
+        None,
+        h=9,
+        templateWindowSize=7,
+        searchWindowSize=21
     )
 
-    # 6. Morphology cleanup
-    kernel = np.ones((params["morph_kernel_size"], params["morph_kernel_size"]), np.uint8)
-    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+    # ---------------------------------------------------------------
+    # CLAHE
+    # ---------------------------------------------------------------
+
+    if std_dev < 28:
+        clahe_clip = 0.9
+    else:
+        clahe_clip = params["clahe_clip"]
+
+    enhanced = _apply_clahe(
+        denoised,
+        clahe_clip,
+        params["clahe_grid"]
+    )
+
+    # ---------------------------------------------------------------
+    # NORMALIZE
+    # ---------------------------------------------------------------
+
+    enhanced = cv2.normalize(
+        enhanced,
+        enhanced.copy(),
+        0,
+        255,
+        cv2.NORM_MINMAX
+    )
+
+    # ---------------------------------------------------------------
+    # MILD CONTRAST
+    # ---------------------------------------------------------------
+
+    if std_dev < 30:
+        alpha = 1.05
+        beta = -10
+    else:
+        alpha = 1.08
+        beta = -12
+
+    enhanced = cv2.convertScaleAbs(
+        enhanced,
+        alpha=alpha,
+        beta=beta
+    )
+
+    # ---------------------------------------------------------------
+    # GAMMA
+    # ---------------------------------------------------------------
+
+    enhanced = _correct_gamma(
+        enhanced,
+        params["gamma"]
+    )
+
+    # ---------------------------------------------------------------
+    # MEDIAN BLUR
+    # ---------------------------------------------------------------
+
+    enhanced = cv2.medianBlur(enhanced, 3)
+
+    # ---------------------------------------------------------------
+    # THRESHOLD
+    # ---------------------------------------------------------------
+
+    thresh = _threshold(
+        enhanced,
+        params
+    )
+
+    # ---------------------------------------------------------------
+    # OPEN (REMOVE SMALL NOISE)
+    # ---------------------------------------------------------------
+
+    open_kernel = np.ones((2, 2), np.uint8)
+
+    cleaned = cv2.morphologyEx(
+        thresh,
+        cv2.MORPH_OPEN,
+        open_kernel
+    )
+
+    # ---------------------------------------------------------------
+    # ERODE (THIN TEXT)
+    # ---------------------------------------------------------------
+
+    thin_kernel = np.ones((2, 2), np.uint8)
+
+    cleaned = cv2.erode(
+        cleaned,
+        thin_kernel,
+        iterations=1
+    )
+
+    # ---------------------------------------------------------------
+    # REMOVE SMALL BLACK COMPONENTS
+    # ---------------------------------------------------------------
+
+    cleaned = _remove_small_black_components(
+        cleaned,
+        params["bw_min_component_area"]
+    )
+
+    # ---------------------------------------------------------------
+    # STRICT BINARY
+    # ---------------------------------------------------------------
+
+    _, cleaned = cv2.threshold(
+        cleaned,
+        127,
+        255,
+        cv2.THRESH_BINARY
+    )
 
     return cleaned
 
 
-def _enhance_magic(image, params):
-    """Magic color enhancement with document-type specific parameters."""
-    # Sharpen image
-    kernel = np.array([
-        [0, -1, 0],
-        [-1, 5, -1],
-        [0, -1, 0]
-    ])
-    sharpened = cv2.filter2D(image, -1, kernel)
+# -------------------------------------------------------------------
+# MAGIC COLOR
+# -------------------------------------------------------------------
 
-    # LAB color enhancement
-    lab = cv2.cvtColor(sharpened, cv2.COLOR_BGR2LAB)
+def _enhance_magic(image, params):
+
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+
     l, a, b = cv2.split(lab)
 
-    clahe = cv2.createCLAHE(
-        clipLimit=params["clahe_clip"],
-        tileGridSize=params["clahe_grid"]
+    bg = cv2.GaussianBlur(
+        l,
+        params["blur_kernel"],
+        0
     )
-    cl = clahe.apply(l)
 
-    merged = cv2.merge((cl, a, b))
-    enhanced = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+    bg = np.clip(bg, 1, None)
 
-    # Saturation boost (document-type specific)
-    hsv = cv2.cvtColor(enhanced, cv2.COLOR_BGR2HSV)
-    h, s, v = cv2.split(hsv)
-    s = cv2.multiply(s, params["saturation_boost"])
-    final = cv2.merge((h, s, v))
+    l_norm = np.clip(
+        (l.astype(np.float32) / bg) * 127,
+        0,
+        255
+    ).astype(np.uint8)
 
-    return cv2.cvtColor(final, cv2.COLOR_HSV2BGR)
+    l_clahe = _apply_clahe(
+        l_norm,
+        params["clahe_clip"],
+        params["clahe_grid"]
+    )
 
+    merged = cv2.merge((l_clahe, a, b))
+
+    result = cv2.cvtColor(
+        merged,
+        cv2.COLOR_LAB2BGR
+    )
+
+    blurred = cv2.GaussianBlur(
+        result,
+        (0, 0),
+        sigmaX=1.0
+    )
+
+    result = cv2.addWeighted(
+        result,
+        1.2,
+        blurred,
+        -0.2,
+        0
+    )
+
+    return result
+
+
+# -------------------------------------------------------------------
+# RECEIPT
+# -------------------------------------------------------------------
 
 def _enhance_receipt(image, params):
-    """Receipt enhancement with document-type specific parameters."""
+
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    # 1. Background normalization
-    bg = cv2.GaussianBlur(gray, params["blur_kernel"], 0)
-    normalized = cv2.divide(gray, bg, scale=255)
+    normalized = _remove_shadow(
+        gray,
+        params["blur_kernel"]
+    )
 
-    # 2. Denoise
     denoised = cv2.fastNlMeansDenoising(
         normalized,
         None,
-        params["denoise_h"] - 2,
-        params["denoise_template"],
-        params["denoise_search"]
+        h=8
     )
 
-    # 3. Contrast enhancement
-    clahe = cv2.createCLAHE(
-        clipLimit=params["clahe_clip"],
-        tileGridSize=params["clahe_grid"]
+    enhanced = _apply_clahe(
+        denoised,
+        1.0,
+        params["clahe_grid"]
     )
-    enhanced = clahe.apply(denoised)
 
-    # 4. Adaptive threshold
-    thresh = cv2.adaptiveThreshold(
+    enhanced = cv2.normalize(
         enhanced,
+        enhanced.copy(),
+        0,
         255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        params["adaptive_block_size"],
-        params["adaptive_constant"]
+        cv2.NORM_MINMAX
     )
 
-    # 5. Remove noise
-    kernel = np.ones((params["morph_kernel_size"], params["morph_kernel_size"]), np.uint8)
-    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+    enhanced = cv2.medianBlur(enhanced, 3)
+
+    thresh = _threshold(
+        enhanced,
+        params
+    )
+
+    kernel = np.ones((2, 2), np.uint8)
+
+    cleaned = cv2.morphologyEx(
+        thresh,
+        cv2.MORPH_OPEN,
+        kernel
+    )
+
+    cleaned = cv2.erode(
+        cleaned,
+        kernel,
+        iterations=1
+    )
+
+    cleaned = _remove_small_black_components(
+        cleaned,
+        6
+    )
 
     return cleaned
