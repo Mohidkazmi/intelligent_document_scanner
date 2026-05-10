@@ -84,6 +84,8 @@ async def correct_perspective(
         cv2.imwrite(processed_path, warped, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
         
         # Update database
+        # Set base_processed_path as the foundation image for all filters
+        document.base_processed_path = processed_path
         document.processed_path = processed_path
         document.status = "processed"
         db.commit()
@@ -108,39 +110,60 @@ async def enhance(
     current_user = Depends(deps.get_current_user),
     document_id: int,
     mode: str = "magic",
+    document_type: str = "typed",
 ) -> Any:
     """
-    Apply image enhancement filters (magic, grayscale, bw, receipt).
+    Apply image enhancement filters (magic, grayscale, bw, receipt) based on document type.
+    
+    Document Types:
+    - typed: For printed/typed documents
+    - handwritten: For handwritten documents  
+    - other: For mixed content
+    
+    Filters are always applied to the base processed image to avoid filter-on-filter artifacts.
     """
     document = db.query(Document).filter(Document.id == document_id, Document.user_id == current_user.id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    # Logic: Always try to use the 'processed' (flattened) image as the base for enhancement.
-    # If the document is currently 'enhanced', we need to find the base 'processed' image.
-    if document.status == "enhanced":
-        # Look for the 'processed_' prefix version which is our baseline from Phase 5
-        # or simply use the original if no processed version exists.
+    # Update document type
+    if document_type in ["typed", "handwritten", "other"]:
+        document.document_type = document_type
+    
+    # Always apply filters to the base processed image (perspective-corrected)
+    # Priority: parent's base_processed_path > own base_processed_path > original_path
+    # This prevents filter-on-filter artifacts even when user crops filtered images
+    input_path = None
+    
+    # Check parent document's base_processed_path (for cropped images)
+    if document.parent_document_id:
+        parent_doc = db.query(Document).filter(
+            Document.id == document.parent_document_id,
+            Document.user_id == current_user.id
+        ).first()
+        if parent_doc and parent_doc.base_processed_path and os.path.exists(parent_doc.base_processed_path):
+            input_path = parent_doc.base_processed_path
+    
+    # Fall back to own base_processed_path
+    if not input_path and document.base_processed_path and os.path.exists(document.base_processed_path):
+        input_path = document.base_processed_path
+    
+    # Always fall back to original_path, never to processed_path
+    if not input_path:
         input_path = document.original_path
-        # But wait, we want the FLATTENED one. 
-        # Let's check if a processed version exists in the filename
-        base_dir = settings.PROCESSED_DIR
-        for f in os.listdir(base_dir):
-            if f.startswith("processed_") and os.path.basename(document.original_path) in f:
-                input_path = os.path.join(base_dir, f)
-                break
-    else:
-        input_path = document.processed_path if document.processed_path else document.original_path
     
     try:
-        enhanced = enhance_image(input_path, mode)
+        enhanced = enhance_image(input_path, mode, document_type)
         
-        # Save enhanced image
-        enhanced_filename = f"enhanced_{mode}_{os.path.basename(input_path)}"
+        # Save enhanced image using original filename as base (strip any filter prefixes)
+        # Use the original filename to avoid stacking filter names
+        original_basename = os.path.basename(document.original_path)
+        enhanced_filename = f"enhanced_{mode}_{document_type}_{original_basename}"
         enhanced_path = os.path.join(settings.PROCESSED_DIR, enhanced_filename)
         cv2.imwrite(enhanced_path, enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
         
         # Update database
+        # processed_path holds the current view, but base_processed_path stays constant
         document.processed_path = enhanced_path
         document.status = "enhanced"
         db.commit()

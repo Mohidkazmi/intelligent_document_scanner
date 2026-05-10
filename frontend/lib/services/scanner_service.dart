@@ -10,10 +10,16 @@ class ScannerService {
     return await _storage.read(key: 'token');
   }
 
-  Future<Map<String, dynamic>> enhanceImage(int documentId, String mode) async {
+  Future<Map<String, dynamic>> enhanceImage(
+    int documentId,
+    String mode, {
+    String documentType = "typed",
+  }) async {
     final token = await _getToken();
     final response = await http.post(
-      Uri.parse('${AppConstants.baseUrl}/scanner/enhance/$documentId?mode=$mode'),
+      Uri.parse(
+        '${AppConstants.baseUrl}/scanner/enhance/$documentId?mode=$mode&document_type=$documentType',
+      ),
       headers: {'Authorization': 'Bearer $token'},
     );
 
@@ -38,10 +44,15 @@ class ScannerService {
     }
   }
 
-  Future<Map<String, dynamic>> correctPerspective(int documentId, List<dynamic> corners) async {
+  Future<Map<String, dynamic>> correctPerspective(
+    int documentId,
+    List<dynamic> corners,
+  ) async {
     final token = await _getToken();
     final response = await http.post(
-      Uri.parse('${AppConstants.baseUrl}/scanner/correct-perspective/$documentId'),
+      Uri.parse(
+        '${AppConstants.baseUrl}/scanner/correct-perspective/$documentId',
+      ),
       headers: {
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',

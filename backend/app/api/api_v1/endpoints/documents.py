@@ -70,9 +70,13 @@ async def upload_document(
     db: Session = Depends(get_db),
     current_user = Depends(deps.get_current_user),
     file: UploadFile = File(...),
+    parent_document_id: int = None,
 ) -> Any:
     """
     Upload a document.
+    
+    If parent_document_id is provided, this document is treated as a crop of the parent.
+    Filters applied to this document will use the parent's base_processed_path if available.
     """
     # Validate content type
     if file.content_type not in SUPPORTED_FORMATS:
@@ -92,6 +96,18 @@ async def upload_document(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File size exceeds 20MB limit."
         )
+
+    # Validate parent_document_id if provided
+    if parent_document_id:
+        parent_doc = db.query(Document).filter(
+            Document.id == parent_document_id,
+            Document.user_id == current_user.id
+        ).first()
+        if not parent_doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Parent document not found"
+            )
 
     # Generate unique filename
     file_ext = os.path.splitext(file.filename)[1]
@@ -114,6 +130,7 @@ async def upload_document(
         filename=file.filename,
         mime_type=file.content_type,
         original_path=file_path,
+        parent_document_id=parent_document_id,
         status="uploaded"
     )
     db.add(db_obj)

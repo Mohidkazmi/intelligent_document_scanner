@@ -18,12 +18,16 @@ class ImagePreviewScreen extends StatefulWidget {
 
 class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
   String? _processedImagePath;
+  String?
+  _originalImagePath; // Track the original uncropped image (from camera or initial upload)
   bool _isProcessing = false;
   String _selectedFilter = 'original';
-  
+  String _selectedDocumentType = 'typed';
+
   final _documentService = DocumentService();
   final _scannerService = ScannerService();
   int? _documentId;
+  int? _parentDocumentId; // Track parent for cropped images
   String? _remoteUrl;
   bool _isRemote = false;
 
@@ -31,6 +35,51 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
   void initState() {
     super.initState();
     _processedImagePath = widget.imagePath;
+    _originalImagePath = widget.imagePath; // Store original for reference
+    // Attempt auto-crop/flatten for camera-captured images
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoCropAndFlatten();
+    });
+  }
+
+  Future<void> _autoCropAndFlatten() async {
+    // Run auto-crop once when the preview screen opens (for camera captures)
+    if (_processedImagePath == null) return;
+    if (_isProcessing) return;
+
+    try {
+      setState(() => _isProcessing = true);
+
+      // 1. Upload image if not already uploaded to obtain a document id
+      if (_documentId == null) {
+        final doc = await _documentService.uploadDocument(
+          File(_processedImagePath!),
+        );
+        _documentId = doc['id'];
+      }
+
+      // 2. Detect edges
+      final edgeResult = await _scannerService.detectEdges(_documentId!);
+      final corners = edgeResult['corners'];
+
+      // If corners found, apply perspective correction automatically
+      if (corners != null && corners is List && corners.isNotEmpty) {
+        final perspectiveResult = await _scannerService.correctPerspective(
+          _documentId!,
+          corners,
+        );
+
+        setState(() {
+          _remoteUrl = perspectiveResult['url'];
+          _isRemote = true;
+          _selectedFilter = 'original';
+        });
+      }
+    } catch (e) {
+      debugPrint('Auto-crop error: $e');
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
   }
 
   void _applyFilter(String filter) async {
@@ -50,13 +99,21 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
     try {
       // 1. Upload if not already uploaded
       if (_documentId == null) {
-        final doc = await _documentService.uploadDocument(File(_processedImagePath!));
+        final doc = await _documentService.uploadDocument(
+          File(_processedImagePath!),
+          parentDocumentId:
+              _parentDocumentId, // Pass parent for lineage tracking
+        );
         _documentId = doc['id'];
       }
 
-      // 2. Enhance
-      final result = await _scannerService.enhanceImage(_documentId!, filter);
-      
+      // 2. Enhance with document type
+      final result = await _scannerService.enhanceImage(
+        _documentId!,
+        filter,
+        documentType: _selectedDocumentType,
+      );
+
       setState(() {
         _remoteUrl = result['url'];
         _isRemote = true;
@@ -66,7 +123,10 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
       debugPrint("Enhancement error: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Processing failed: $e"), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text("Processing failed: $e"),
+            backgroundColor: Colors.red,
+          ),
         );
         setState(() => _isProcessing = false);
       }
@@ -78,7 +138,11 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
     try {
       // 1. Upload if needed
       if (_documentId == null) {
-        final doc = await _documentService.uploadDocument(File(_processedImagePath!));
+        final doc = await _documentService.uploadDocument(
+          File(_processedImagePath!),
+          parentDocumentId:
+              _parentDocumentId, // Pass parent for lineage tracking
+        );
         _documentId = doc['id'];
       }
 
@@ -87,25 +151,35 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
       final corners = edgeResult['corners'];
 
       // 3. Correct perspective
-      final perspectiveResult = await _scannerService.correctPerspective(_documentId!, corners);
-      
+      final perspectiveResult = await _scannerService.correctPerspective(
+        _documentId!,
+        corners,
+      );
+
       setState(() {
         _remoteUrl = perspectiveResult['url'];
         _isRemote = true;
         _isProcessing = false;
-        _selectedFilter = 'original'; // Reset filter to original of the new flat image
+        _selectedFilter =
+            'original'; // Reset filter to original of the new flat image
       });
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Image flattened successfully"), backgroundColor: Colors.green),
+          const SnackBar(
+            content: Text("Image flattened successfully"),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       debugPrint("Flatten error: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Flattening failed: $e"), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text("Flattening failed: $e"),
+            backgroundColor: Colors.red,
+          ),
         );
         setState(() => _isProcessing = false);
       }
@@ -124,18 +198,47 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
           lockAspectRatio: false,
           activeControlsWidgetColor: AppTheme.primaryColor,
         ),
-        IOSUiSettings(
-          title: 'Crop Document',
-        ),
+        IOSUiSettings(title: 'Crop Document'),
       ],
     );
 
     if (croppedFile != null) {
+      // If this is the first crop (no document uploaded yet), upload the original image as parent
+      if (_documentId == null && _parentDocumentId == null) {
+        try {
+          setState(() => _isProcessing = true);
+
+          // Upload the original uncropped image to establish parent lineage
+          final originalDoc = await _documentService.uploadDocument(
+            File(_originalImagePath!),
+          );
+          _parentDocumentId = originalDoc['id'];
+
+          debugPrint('Uploaded original image as parent: $_parentDocumentId');
+        } catch (e) {
+          debugPrint('Error uploading original image: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to establish parent lineage: $e'),
+                backgroundColor: Colors.red,
+              ),
+            );
+            setState(() => _isProcessing = false);
+          }
+          return;
+        }
+      } else if (_documentId != null) {
+        // If already uploaded, use current document as parent for the new crop
+        _parentDocumentId = _documentId;
+      }
+
       setState(() {
         _processedImagePath = croppedFile.path;
         _documentId = null; // Reset ID because file changed
         _isRemote = false;
         _selectedFilter = 'original';
+        _isProcessing = false;
       });
     }
   }
@@ -161,7 +264,10 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
             onPressed: () {
               Navigator.of(context).popUntil((route) => route.isFirst);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Document saved successfully"), backgroundColor: Colors.green),
+                const SnackBar(
+                  content: Text("Document saved successfully"),
+                  backgroundColor: Colors.green,
+                ),
               );
             },
           ),
@@ -176,7 +282,10 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 10),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    blurRadius: 10,
+                  ),
                 ],
               ),
               child: ClipRRect(
@@ -190,7 +299,9 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
                             width: double.infinity,
                             loadingBuilder: (context, child, progress) {
                               if (progress == null) return child;
-                              return const Center(child: CircularProgressIndicator());
+                              return const Center(
+                                child: CircularProgressIndicator(),
+                              );
                             },
                             errorBuilder: (context, error, stackTrace) {
                               debugPrint("Network Image Error: $error");
@@ -217,7 +328,46 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
             ),
           ),
 
-          // 2. Filter Bar
+          // 2. Document Type Selector
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Document Type',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildDocumentTypeItem(
+                        'typed',
+                        'Typed',
+                        Icons.description,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildDocumentTypeItem(
+                        'handwritten',
+                        'Handwritten',
+                        Icons.edit,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildDocumentTypeItem('other', 'Other', Icons.layers),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 3. Filter Bar
           Container(
             height: 120,
             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -248,7 +398,9 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
         decoration: BoxDecoration(
           color: isSelected ? AppTheme.primaryColor : AppTheme.surfaceColor,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: isSelected ? Colors.white24 : Colors.transparent),
+          border: Border.all(
+            color: isSelected ? Colors.white24 : Colors.transparent,
+          ),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -259,6 +411,46 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
               label,
               style: TextStyle(
                 fontSize: 12,
+                color: isSelected ? Colors.white : Colors.white70,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDocumentTypeItem(String id, String label, IconData icon) {
+    final isSelected = _selectedDocumentType == id;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedDocumentType = id;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.primaryColor : AppTheme.surfaceColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? Colors.white24 : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: isSelected ? Colors.white : Colors.white70,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
                 color: isSelected ? Colors.white : Colors.white70,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
               ),

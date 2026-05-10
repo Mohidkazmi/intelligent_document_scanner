@@ -12,7 +12,10 @@ class DocumentService {
     return await _storage.read(key: 'token');
   }
 
-  Future<Map<String, dynamic>> uploadDocument(File file) async {
+  Future<Map<String, dynamic>> uploadDocument(
+    File file, {
+    int? parentDocumentId,
+  }) async {
     final token = await _getToken();
     final request = http.MultipartRequest(
       'POST',
@@ -20,7 +23,12 @@ class DocumentService {
     );
 
     request.headers['Authorization'] = 'Bearer $token';
-    
+
+    // Add parent_document_id if provided (for cropped images)
+    if (parentDocumentId != null) {
+      request.fields['parent_document_id'] = parentDocumentId.toString();
+    }
+
     // Determine content type based on extension
     final extension = file.path.split('.').last.toLowerCase();
     String mimeType = 'image/jpeg';
@@ -28,11 +36,13 @@ class DocumentService {
     if (extension == 'webp') mimeType = 'image/webp';
     if (extension == 'pdf') mimeType = 'application/pdf';
 
-    request.files.add(await http.MultipartFile.fromPath(
-      'file', 
-      file.path,
-      contentType: MediaType.parse(mimeType),
-    ));
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'file',
+        file.path,
+        contentType: MediaType.parse(mimeType),
+      ),
+    );
 
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);

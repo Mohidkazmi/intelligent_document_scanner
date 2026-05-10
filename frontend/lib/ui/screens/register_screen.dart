@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:doc_scanner/core/theme.dart';
 import 'package:doc_scanner/providers/auth_provider.dart';
+import 'package:doc_scanner/ui/screens/home_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -21,16 +22,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void _register() async {
     if (_passwordController.text != _confirmPasswordController.text) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Passwords do not match"), backgroundColor: Colors.red),
+        const SnackBar(
+          content: Text("Passwords do not match"),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
 
     final auth = Provider.of<AuthProvider>(context, listen: false);
     try {
-      await auth.register(_nameController.text, _emailController.text, _passwordController.text);
+      await auth.register(
+        _nameController.text,
+        _emailController.text,
+        _passwordController.text,
+      );
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/home');
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -131,7 +142,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
           hintStyle: const TextStyle(color: Colors.white38),
           prefixIcon: Icon(icon, color: AppTheme.primaryColor),
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 16,
+          ),
         ),
       ),
     );
