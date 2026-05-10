@@ -26,6 +26,21 @@ def enhance_image(image_path: str, mode: str, document_type: str = "typed"):
     if image is None:
         raise ValueError("Could not read image")
 
+    # Normalize image channels: ensure 3-channel BGR input
+    # Some gallery images (PNG) may include an alpha channel (4 channels)
+    # or be single-channel grayscale. Convert those to BGR so downstream
+    # processing (cvtColor, CLAHE, etc.) behaves consistently.
+    try:
+        if len(image.shape) == 2:
+            # Grayscale -> BGR
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        elif len(image.shape) == 3 and image.shape[2] == 4:
+            # BGRA -> BGR (drop alpha)
+            image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+    except Exception:
+        # If conversion fails, continue and let later ops raise informative errors
+        pass
+
     # Get document-specific parameters
     params = _get_enhancement_params(document_type)
 

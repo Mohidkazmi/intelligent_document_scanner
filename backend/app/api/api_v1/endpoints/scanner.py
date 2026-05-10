@@ -154,7 +154,20 @@ async def enhance(
     
     try:
         enhanced = enhance_image(input_path, mode, document_type)
-        
+
+        # Ensure enhanced image is uint8 and 3-channel (BGR) so clients render colors correctly.
+        try:
+            # Normalize and convert dtype if needed
+            if enhanced.dtype != 'uint8':
+                enhanced = cv2.normalize(enhanced, None, 0, 255, cv2.NORM_MINMAX).astype('uint8')
+
+            # If single-channel (grayscale), convert to BGR to preserve display on clients
+            if len(enhanced.shape) == 2 or (len(enhanced.shape) == 3 and enhanced.shape[2] == 1):
+                enhanced = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+        except Exception:
+            # If conversion fails, fall back to saving as-is
+            pass
+
         # Save enhanced image using original filename as base (strip any filter prefixes)
         # Use the original filename to avoid stacking filter names
         original_basename = os.path.basename(document.original_path)

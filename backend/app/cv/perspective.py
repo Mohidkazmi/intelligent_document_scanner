@@ -11,6 +11,12 @@ def four_point_transform(image_path: str, pts: list):
     if image is None:
         raise ValueError("Could not read image")
 
+    # Normalize image channels to BGR to avoid issues when input has alpha
+    if len(image.shape) == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    elif len(image.shape) == 3 and image.shape[2] == 4:
+        image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+
     rect = order_points(np.array(pts, dtype="float32"))
     (tl, tr, br, bl) = rect
 
