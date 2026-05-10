@@ -4,6 +4,8 @@ import 'package:doc_scanner/core/theme.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:doc_scanner/services/document_service.dart';
 import 'package:doc_scanner/services/scanner_service.dart';
+import 'package:doc_scanner/services/ocr_service.dart';
+import 'package:doc_scanner/ui/screens/ocr_result_screen.dart';
 import 'package:doc_scanner/core/constants.dart';
 
 class ImagePreviewScreen extends StatefulWidget {
@@ -31,6 +33,7 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
 
   final _documentService = DocumentService();
   final _scannerService = ScannerService();
+  final _ocrService = OcrService();
   int? _documentId;
   int? _parentDocumentId; // Track parent for cropped images
   String? _remoteUrl;
@@ -293,6 +296,50 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
     );
   }
 
+  Future<void> _extractText() async {
+    if (_isProcessing || _processedImagePath == null) return;
+    setState(() => _isProcessing = true);
+    try {
+      if (_documentId == null) {
+        final doc = await _documentService.uploadDocument(
+          File(_processedImagePath!),
+          parentDocumentId: _parentDocumentId,
+        );
+        final id = doc['id'];
+        _documentId = id is int ? id : int.parse(id.toString());
+      }
+
+      final result = await _ocrService.extractText(_documentId!);
+      final text = result['text'] as String? ?? '';
+
+      if (!mounted) return;
+      setState(() => _isProcessing = false);
+
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => OcrResultScreen(
+            text: text,
+            engine: result['engine'] as String? ?? 'tesseract',
+            lang: result['lang'] as String? ?? 'eng',
+            blocks: result['blocks'] as List<dynamic>?,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('OCR error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('OCR failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
@@ -310,6 +357,11 @@ class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
             IconButton(
               icon: const Icon(Icons.crop_rotate, color: Colors.white),
               onPressed: _cropImage,
+            ),
+            IconButton(
+              icon: const Icon(Icons.text_fields, color: Colors.white),
+              tooltip: 'Extract text',
+              onPressed: _extractText,
             ),
             if (_hasUnsavedChanges)
               IconButton(
